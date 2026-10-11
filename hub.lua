@@ -1,5 +1,7 @@
+```
 
--- JJS HUB V3 | PC
+
+-- JJS HUB V7 | PC
 -- WALL CLIMB V3 + TODO PERFECT SWAP V11
 -- Janela arrastavel, redimensionavel e minimizavel
 
@@ -33,7 +35,7 @@ for _, nome in ipairs({
     end
 end
 
-for _, nome in ipairs({"JJSHubV1", "JJSHubV2", "JJSHubV3"}) do
+for _, nome in ipairs({"JJSHubV1", "JJSHubV2", "JJSHubV3", "JJSHubV4", "JJSHubV5", "JJSHubV4"}) do
     local antigo = playerGui:FindFirstChild(nome)
     if antigo then antigo:Destroy() end
 end
@@ -46,6 +48,7 @@ local spaceHeld = false
 local lastImpulse = 0
 local swapBusy = false
 local timingOffset = 0
+local swapCooldown = 0.8 -- espera minima entre inicios (nao cooldown do servidor)
 
 local function connect(signal, fn)
     local connection = signal:Connect(fn)
@@ -62,7 +65,7 @@ local CONFIG = {
     WALL_INTERVAL = 0.38,
     R_HOLD = 0.10,
     M1_HOLD = 0.035,
-    SWAP_COOLDOWN = 2.5,
+    SWAP_COOLDOWN = 0.8,
     MAX_TARGET_DISTANCE = 60
 }
 
@@ -71,7 +74,7 @@ local CONFIG = {
 -- ============================================
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "JJSHubV3"
+gui.Name = "JJSHubV4"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = false
 gui.DisplayOrder = 100
@@ -80,8 +83,8 @@ gui.Parent = playerGui
 
 local main = Instance.new("Frame")
 main.Name = "Main"
-main.Size = UDim2.fromOffset(350, 315)
-main.Position = UDim2.new(0.5, -175, 0.5, -157)
+main.Size = UDim2.fromOffset(350, 350)
+main.Position = UDim2.new(0.5, -175, 0.5, -175)
 main.BackgroundColor3 = Color3.fromRGB(24, 27, 36)
 main.BorderSizePixel = 0
 main.Active = true
@@ -111,7 +114,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -90, 1, 0)
 title.Position = UDim2.fromOffset(12, 0)
 title.BackgroundTransparency = 1
-title.Text = "JJS HUB V3"
+title.Text = "JJS HUB V4"
 title.TextColor3 = Color3.new(1, 1, 1)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 18
@@ -146,11 +149,14 @@ end
 
 -- AREA DOS BOTOES
 
-local content = Instance.new("Frame")
+local content = Instance.new("ScrollingFrame")
 content.Name = "Content"
-content.Position = UDim2.fromOffset(12, 57)
-content.Size = UDim2.new(1, -24, 1, -72)
+content.Position = UDim2.fromOffset(12, 95)
+content.Size = UDim2.new(1, -24, 1, -110)
 content.BackgroundTransparency = 1
+content.BorderSizePixel = 0
+content.ScrollBarThickness = 4
+content.CanvasSize = UDim2.fromOffset(0, 285)
 content.Parent = main
 
 local layout = Instance.new("UIListLayout")
@@ -178,6 +184,7 @@ end
 local wallButton = makeButton("WALL CLIMB V3 | OFF")
 local swapButton = makeButton("PERFECT SWAP V11 | OFF")
 local timingButton = makeButton("TIMING | 0 ms")
+local cooldownButton = makeButton("INTERVALO SWAP | 0.8 s")
 
 local info = Instance.new("TextLabel")
 info.Size = UDim2.new(1, 0, 0, 65)
@@ -188,6 +195,351 @@ info.TextSize = 12
 info.TextWrapped = true
 info.Text = "WALL: ESPACO perto da parede\nSWAP: E | F6/F7: ajustar timing\nArraste o canto inferior direito para redimensionar"
 info.Parent = content
+
+-- GUIAS: PRINCIPAL / COMBATE
+local tabs = Instance.new("Frame")
+tabs.Name = "Tabs"
+tabs.Position = UDim2.fromOffset(12, 52)
+tabs.Size = UDim2.new(1, -24, 0, 34)
+tabs.BackgroundTransparency = 1
+tabs.Parent = main
+
+local function tabButton(text, x)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.5, -4, 1, 0)
+    b.Position = UDim2.new(x, x == 0 and 0 or 4, 0, 0)
+    b.BackgroundColor3 = Color3.fromRGB(50, 75, 110)
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 14
+    b.Text = text
+    b.Parent = tabs
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
+    return b
+end
+
+local mainTab = tabButton("PRINCIPAL", 0)
+local combatTab = tabButton("COMBATE", 0.5)
+
+local combatContent = Instance.new("ScrollingFrame")
+combatContent.Name = "CombatContent"
+combatContent.Position = content.Position
+combatContent.Size = content.Size
+combatContent.BackgroundTransparency = 1
+combatContent.BorderSizePixel = 0
+combatContent.ScrollBarThickness = 4
+combatContent.CanvasSize = UDim2.fromOffset(0, 400)
+combatContent.Visible = false
+combatContent.Parent = main
+
+local combatLayout = Instance.new("UIListLayout")
+combatLayout.Padding = UDim.new(0, 8)
+combatLayout.Parent = combatContent
+
+local function combatButton(label)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -7, 0, 40)
+    b.BackgroundColor3 = Color3.fromRGB(58, 65, 84)
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.TextSize = 13
+    b.Font = Enum.Font.GothamBold
+    b.Text = label
+    b.Parent = combatContent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
+    return b
+end
+
+local hitboxEnabled = false
+local hitboxSize = {15, 3, 15}
+local originalRoots = {}
+local hitboxConnections = {}
+local hitboxToggle = combatButton("HITBOX | OFF")
+
+local function makeDimension(label, index)
+    local line = Instance.new("Frame")
+    line.Size = UDim2.new(1, -7, 0, 38)
+    line.BackgroundTransparency = 1
+    line.Parent = combatContent
+
+    local minus = Instance.new("TextButton")
+    minus.Size = UDim2.fromOffset(44, 34)
+    minus.Position = UDim2.new(0, 0, 0, 0)
+    minus.Text = "-"
+    minus.TextSize = 20
+    minus.BackgroundColor3 = Color3.fromRGB(58, 65, 84)
+    minus.TextColor3 = Color3.new(1, 1, 1)
+    minus.Parent = line
+
+    local value = Instance.new("TextLabel")
+    value.Size = UDim2.new(1, -100, 0, 34)
+    value.Position = UDim2.fromOffset(50, 0)
+    value.BackgroundTransparency = 1
+    value.TextColor3 = Color3.new(1, 1, 1)
+    value.Font = Enum.Font.GothamBold
+    value.TextSize = 14
+    value.Parent = line
+
+    local plus = Instance.new("TextButton")
+    plus.Size = UDim2.fromOffset(44, 34)
+    plus.Position = UDim2.new(1, -44, 0, 0)
+    plus.Text = "+"
+    plus.TextSize = 20
+    plus.BackgroundColor3 = Color3.fromRGB(58, 65, 84)
+    plus.TextColor3 = Color3.new(1, 1, 1)
+    plus.Parent = line
+
+    for _, b in ipairs({minus, plus}) do
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    end
+
+    local function update()
+        value.Text = label .. ": " .. tostring(hitboxSize[index])
+    end
+    update()
+    connect(minus.MouseButton1Click, function()
+        hitboxSize[index] = math.max(1, hitboxSize[index] - 1)
+        update()
+    end)
+    connect(plus.MouseButton1Click, function()
+        hitboxSize[index] = math.min(40, hitboxSize[index] + 1)
+        update()
+    end)
+end
+
+makeDimension("LARGURA X", 1)
+makeDimension("ALTURA Y", 2)
+makeDimension("PROFUNDIDADE Z", 3)
+
+-- LOCK ON (Q) - tecla E reservada para Perfect Swap
+local lockButton = combatButton("LOCK ON | OFF (Q)")
+local lockEnabled = false
+local lockTarget = nil
+local lockHighlight = nil
+local savedAutoRotate = nil
+local LOCK_DISTANCE = 80
+local LOCK_ROTATION_SPEED = 14
+
+local function clearLockMarker()
+    if lockHighlight then
+        lockHighlight:Destroy()
+        lockHighlight = nil
+    end
+end
+
+local function markLockTarget(character)
+    clearLockMarker()
+    if not character then return end
+    local marker = Instance.new("Highlight")
+    marker.Name = "JJSLockMarker"
+    marker.Adornee = character
+    marker.FillColor = Color3.fromRGB(255, 60, 60)
+    marker.OutlineColor = Color3.fromRGB(255, 255, 255)
+    marker.FillTransparency = 0.75
+    marker.OutlineTransparency = 0
+    marker.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    marker.Parent = gui
+    lockHighlight = marker
+end
+
+local function closestLockTarget()
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local best, bestDistance = nil, LOCK_DISTANCE
+    for _, other in ipairs(Players:GetPlayers()) do
+        if other ~= player and other.Character then
+            local model = other.Character
+            local enemyRoot = model:FindFirstChild("HumanoidRootPart")
+            local enemyHum = model:FindFirstChildOfClass("Humanoid")
+            if enemyRoot and enemyHum and enemyHum.Health > 0 then
+                local distance = (enemyRoot.Position - root.Position).Magnitude
+                if distance < bestDistance then
+                    best, bestDistance = model, distance
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function updateLockButton()
+    lockButton.Text = "LOCK ON | " .. (lockEnabled and "ON" or "OFF") .. " (Q)"
+    lockButton.BackgroundColor3 = lockEnabled
+        and Color3.fromRGB(40, 130, 90)
+        or Color3.fromRGB(58, 65, 84)
+end
+
+local function disableLock()
+    lockEnabled = false
+    lockTarget = nil
+    clearLockMarker()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.AutoRotate = savedAutoRotate == nil and true or savedAutoRotate
+    end
+    savedAutoRotate = nil
+    updateLockButton()
+end
+
+local function enableLock()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    local chosen = closestLockTarget()
+    if not chosen then
+        print("[LOCK ON] Nenhum alvo dentro de 80 studs")
+        return
+    end
+    savedAutoRotate = hum.AutoRotate
+    lockTarget = chosen
+    lockEnabled = true
+    hum.AutoRotate = false
+    markLockTarget(chosen)
+    updateLockButton()
+end
+
+local function toggleLock()
+    if lockEnabled then disableLock() else enableLock() end
+end
+
+connect(lockButton.MouseButton1Click, toggleLock)
+connect(UIS.InputBegan, function(input, processed)
+    if not processed and input.KeyCode == Enum.KeyCode.Q then
+        toggleLock()
+    end
+end)
+
+connect(RunService.RenderStepped, function(dt)
+    if not alive or not lockEnabled then return end
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum or hum.Health <= 0 then
+        disableLock()
+        return
+    end
+    hum.AutoRotate = false
+    local targetRoot = lockTarget and lockTarget:FindFirstChild("HumanoidRootPart")
+    local targetHum = lockTarget and lockTarget:FindFirstChildOfClass("Humanoid")
+    if not lockTarget or not lockTarget.Parent or not targetRoot
+        or not targetHum or targetHum.Health <= 0
+        or (targetRoot.Position - root.Position).Magnitude > LOCK_DISTANCE then
+        lockTarget = closestLockTarget()
+        if not lockTarget then
+            disableLock()
+            return
+        end
+        markLockTarget(lockTarget)
+        targetRoot = lockTarget:FindFirstChild("HumanoidRootPart")
+        if not targetRoot then return end
+    end
+    local delta = targetRoot.Position - root.Position
+    local flat = Vector3.new(delta.X, 0, delta.Z)
+    if flat.Magnitude > 0.01 then
+        local desired = CFrame.lookAt(root.Position, root.Position + flat.Unit)
+        root.CFrame = root.CFrame:Lerp(desired, math.clamp(LOCK_ROTATION_SPEED * dt, 0, 1))
+    end
+end)
+
+connect(player.CharacterAdded, function()
+    if lockEnabled then
+        -- Aguardar o novo personagem antes de selecionar um alvo novamente
+        lockEnabled = false
+        lockTarget = nil
+        savedAutoRotate = nil
+        clearLockMarker()
+        updateLockButton()
+    end
+end)
+
+local combatInfo = Instance.new("TextLabel")
+combatInfo.Size = UDim2.new(1, -7, 0, 78)
+combatInfo.BackgroundTransparency = 1
+combatInfo.TextColor3 = Color3.fromRGB(190, 200, 220)
+combatInfo.TextSize = 12
+combatInfo.TextWrapped = true
+combatInfo.Text = "Alteracao local de HumanoidRootPart em outros personagens e dummies. Nao garante acerto registrado pelo servidor."
+combatInfo.Parent = combatContent
+
+local function refreshTabs(combat)
+    content.Visible = not combat
+    combatContent.Visible = combat
+    mainTab.BackgroundColor3 = combat and Color3.fromRGB(58,65,84) or Color3.fromRGB(40,110,145)
+    combatTab.BackgroundColor3 = combat and Color3.fromRGB(40,110,145) or Color3.fromRGB(58,65,84)
+end
+connect(mainTab.MouseButton1Click, function() refreshTabs(false) end)
+connect(combatTab.MouseButton1Click, function() refreshTabs(true) end)
+refreshTabs(false)
+
+-- Guardar propriedades para restaurar ao desligar
+local function restoreHitboxes()
+    for root, original in pairs(originalRoots) do
+        if root and root.Parent then
+            pcall(function()
+                root.Size = original.Size
+                root.Transparency = original.Transparency
+                root.Material = original.Material
+                root.CanCollide = original.CanCollide
+                root.CanTouch = original.CanTouch
+                root.CanQuery = original.CanQuery
+                root.Massless = original.Massless
+            end)
+        end
+        originalRoots[root] = nil
+    end
+end
+
+local function applyHitbox(model)
+    if not hitboxEnabled or not model or model == player.Character then return end
+    local hum = model:FindFirstChildOfClass("Humanoid")
+    local root = model:FindFirstChild("HumanoidRootPart")
+    if not hum or not root or hum.Health <= 0 then return end
+    if not originalRoots[root] then
+        originalRoots[root] = {
+            Size = root.Size, Transparency = root.Transparency,
+            Material = root.Material, CanCollide = root.CanCollide,
+            CanTouch = root.CanTouch, CanQuery = root.CanQuery,
+            Massless = root.Massless
+        }
+    end
+    root.Size = Vector3.new(hitboxSize[1], hitboxSize[2], hitboxSize[3])
+    root.CanCollide = false
+    root.CanTouch = true
+    root.CanQuery = true
+    root.Massless = true
+    root.Transparency = 1
+end
+
+local function refreshHitboxes()
+    if not hitboxEnabled then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and p.Character then applyHitbox(p.Character) end
+    end
+    for _, object in ipairs(workspace:GetDescendants()) do
+        if object:IsA("Model") and object:FindFirstChildOfClass("Humanoid") then
+            applyHitbox(object)
+        end
+    end
+end
+
+connect(hitboxToggle.MouseButton1Click, function()
+    hitboxEnabled = not hitboxEnabled
+    hitboxToggle.Text = "HITBOX | " .. (hitboxEnabled and "ON" or "OFF")
+    hitboxToggle.BackgroundColor3 = hitboxEnabled and Color3.fromRGB(40,130,90) or Color3.fromRGB(58,65,84)
+    if hitboxEnabled then refreshHitboxes() else restoreHitboxes() end
+end)
+
+-- Reaplicar para novos personagens e para valores ajustados
+local hitboxElapsed = 0
+connect(RunService.Heartbeat, function(dt)
+    if not hitboxEnabled then return end
+    hitboxElapsed = hitboxElapsed + dt
+    if hitboxElapsed >= 1 then
+        hitboxElapsed = 0
+        refreshHitboxes()
+    end
+end)
 
 -- ALCA PARA REDIMENSIONAR
 
@@ -235,7 +587,7 @@ local resizeStart
 local originalSize
 
 local MIN_WIDTH = 230
-local MIN_HEIGHT = 245
+local MIN_HEIGHT = 280
 local MAX_WIDTH = 850
 local MAX_HEIGHT = 650
 
@@ -307,14 +659,77 @@ end)
 -- MINIMIZAR, REABRIR E FECHAR
 -- ============================================
 
+-- BOTAO VERDE ARRASTAVEL + CTRL DIREITO PARA OCULTAR
+local buttonHidden = false
+local movingOpen = false
+local openWasDragged = false
+local openStartMouse = nil
+local openStartPosition = nil
+
+connect(openButton.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        movingOpen = true
+        openWasDragged = false
+        openStartMouse = input.Position
+        openStartPosition = openButton.Position
+    end
+end)
+
+connect(UIS.InputChanged, function(input)
+    if not movingOpen or not openStartMouse or not openStartPosition then
+        return
+    end
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement then
+        return
+    end
+
+    local delta = input.Position - openStartMouse
+    if delta.Magnitude >= 6 then
+        openWasDragged = true
+    end
+    if not openWasDragged then return end
+
+    local screen = workspace.CurrentCamera.ViewportSize
+    local width = openButton.AbsoluteSize.X
+    local height = openButton.AbsoluteSize.Y
+    local targetX = openStartPosition.X.Offset + delta.X
+    local targetY = openStartPosition.Y.Offset + delta.Y
+    -- O botao inicia com Y.Scale=0.5, por isso convertemos para pixels
+    targetX = openStartPosition.X.Scale * screen.X + targetX
+    targetY = openStartPosition.Y.Scale * screen.Y + targetY
+    openButton.Position = UDim2.fromOffset(
+        math.clamp(targetX, 0, math.max(0, screen.X - width)),
+        math.clamp(targetY, 0, math.max(0, screen.Y - height))
+    )
+end)
+
+connect(UIS.InputEnded, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        movingOpen = false
+    end
+end)
+
 connect(minimize.MouseButton1Click, function()
     main.Visible = false
-    openButton.Visible = true
+    openButton.Visible = not buttonHidden
 end)
 
 connect(openButton.MouseButton1Click, function()
+    if openWasDragged then
+        openWasDragged = false
+        return
+    end
     main.Visible = true
     openButton.Visible = false
+end)
+
+connect(UIS.InputBegan, function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        buttonHidden = not buttonHidden
+        openButton.Visible = not buttonHidden and not main.Visible
+        print("[JJS HUB] Botao flutuante:", buttonHidden and "OCULTO" or "VISIVEL")
+    end
 end)
 
 -- ============================================
@@ -330,6 +745,7 @@ local function refresh()
 
     timingButton.Text =
         "TIMING | " .. timingOffset .. " ms"
+    cooldownButton.Text = string.format("INTERVALO SWAP | %.1f s", swapCooldown)
 
     wallButton.BackgroundColor3 = wallON
         and Color3.fromRGB(40, 130, 90)
@@ -356,6 +772,12 @@ connect(timingButton.MouseButton1Click, function()
     if timingOffset > 120 then
         timingOffset = -120
     end
+    refresh()
+end)
+
+connect(cooldownButton.MouseButton1Click, function()
+    swapCooldown = swapCooldown + 0.2
+    if swapCooldown > 2.01 then swapCooldown = 0.4 end
     refresh()
 end)
 
@@ -426,6 +848,7 @@ local function doSwap()
     if not alive or not swapON or swapBusy then return end
 
     swapBusy = true
+    local attemptStart = os.clock()
 
     local ok, err = pcall(function()
         local target, distance = getTarget()
@@ -460,7 +883,8 @@ local function doSwap()
         warn("[PERFECT SWAP V11]", err)
     end
 
-    task.wait(CONFIG.SWAP_COOLDOWN)
+    local waitLeft = swapCooldown - (os.clock() - attemptStart)
+    if waitLeft > 0 then task.wait(waitLeft) end
     swapBusy = false
 end
 
@@ -571,6 +995,9 @@ local function cleanup()
     alive = false
     wallON = false
     swapON = false
+    hitboxEnabled = false
+    disableLock()
+    restoreHitboxes()
 
     for _, connection in ipairs(connections) do
         pcall(function()
@@ -588,5 +1015,6 @@ connect(close.MouseButton1Click, cleanup)
 
 refresh()
 
-print("[JJS HUB V3] CARREGADO")
+print("[JJS HUB V7] CARREGADO")
 print("Janela redimensionavel e minimizavel")
+```
