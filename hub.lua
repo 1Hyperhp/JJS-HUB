@@ -1,4 +1,4 @@
--- JJS HUB V7 | PC
+-- JJS HUB V8 | PC
 -- WALL CLIMB V3 + TODO PERFECT SWAP V11
 -- Janela arrastavel, redimensionavel e minimizavel
 
@@ -111,7 +111,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -90, 1, 0)
 title.Position = UDim2.fromOffset(12, 0)
 title.BackgroundTransparency = 1
-title.Text = "JJS HUB V7"
+title.Text = "JJS HUB V8"
 title.TextColor3 = Color3.new(1, 1, 1)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 18
@@ -179,9 +179,48 @@ local function makeButton(text)
 end
 
 local wallButton = makeButton("WALL CLIMB V3 | OFF")
+wallButton.LayoutOrder = 1
 local swapButton = makeButton("PERFECT SWAP V11 | OFF")
+swapButton.LayoutOrder = 2
+-- Teclas configuraveis (nao alteram as teclas nativas do jogo)
+local swapKey = Enum.KeyCode.E
+local lockKey = Enum.KeyCode.Q
+local capturingKey = nil
+local swapKeyBox, lockKeyBox
+
+local function keyLabel(key)
+    return key.Name
+end
+
+local function makeKeyBox(button, label)
+    button.Size = UDim2.new(1, -100, 0, 45)
+    local box = Instance.new("TextButton")
+    box.Name = label .. "Keybind"
+    box.Size = UDim2.fromOffset(88, 45)
+    box.Position = UDim2.new(1, -88, 0, 0)
+    box.BackgroundColor3 = Color3.fromRGB(75, 83, 110)
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.Font = Enum.Font.GothamBold
+    box.TextSize = 12
+    local row = Instance.new("Frame")
+    row.Name = label .. "Row"
+    row.Size = UDim2.new(1, 0, 0, 45)
+    row.BackgroundTransparency = 1
+    row.LayoutOrder = label == "Lock" and 10 or button.LayoutOrder
+    row.Parent = button.Parent
+    button.Parent = row
+    box.Parent = row
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 7)
+    return box
+end
+
+swapKeyBox = makeKeyBox(swapButton, "Swap")
+swapKeyBox.Text = "TECLA: E"
+
 local timingButton = makeButton("TIMING | 0 ms")
+timingButton.LayoutOrder = 3
 local cooldownButton = makeButton("INTERVALO SWAP | 0.8 s")
+cooldownButton.LayoutOrder = 4
 
 local info = Instance.new("TextLabel")
 info.Size = UDim2.new(1, 0, 0, 65)
@@ -190,7 +229,8 @@ info.TextColor3 = Color3.fromRGB(195, 205, 225)
 info.Font = Enum.Font.Gotham
 info.TextSize = 12
 info.TextWrapped = true
-info.Text = "WALL: ESPACO perto da parede\nSWAP: E | F6/F7: ajustar timing\nArraste o canto inferior direito para redimensionar"
+info.Text = "WALL: ESPACO perto da parede\nSWAP: tecla configuravel | F6/F7: timing\nArraste o canto inferior direito para redimensionar"
+info.LayoutOrder = 5
 info.Parent = content
 
 -- GUIAS: PRINCIPAL / COMBATE
@@ -308,7 +348,9 @@ makeDimension("ALTURA Y", 2)
 makeDimension("PROFUNDIDADE Z", 3)
 
 -- LOCK ON (Q) - tecla E reservada para Perfect Swap
-local lockButton = combatButton("LOCK ON | OFF (Q)")
+local lockButton = combatButton("LOCK ON | OFF")
+lockKeyBox = makeKeyBox(lockButton, "Lock")
+lockKeyBox.Text = "TECLA: Q"
 local lockEnabled = false
 local lockTarget = nil
 local lockHighlight = nil
@@ -360,7 +402,7 @@ local function closestLockTarget()
 end
 
 local function updateLockButton()
-    lockButton.Text = "LOCK ON | " .. (lockEnabled and "ON" or "OFF") .. " (Q)"
+    lockButton.Text = "LOCK ON | " .. (lockEnabled and "ON" or "OFF")
     lockButton.BackgroundColor3 = lockEnabled
         and Color3.fromRGB(40, 130, 90)
         or Color3.fromRGB(58, 65, 84)
@@ -401,11 +443,6 @@ local function toggleLock()
 end
 
 connect(lockButton.MouseButton1Click, toggleLock)
-connect(UIS.InputBegan, function(input, processed)
-    if not processed and input.KeyCode == Enum.KeyCode.Q then
-        toggleLock()
-    end
-end)
 
 connect(RunService.RenderStepped, function(dt)
     if not alive or not lockEnabled then return end
@@ -457,6 +494,7 @@ combatInfo.TextColor3 = Color3.fromRGB(190, 200, 220)
 combatInfo.TextSize = 12
 combatInfo.TextWrapped = true
 combatInfo.Text = "Alteracao local de HumanoidRootPart em outros personagens e dummies. Nao garante acerto registrado pelo servidor."
+combatInfo.LayoutOrder = 11
 combatInfo.Parent = combatContent
 
 local function refreshTabs(combat)
@@ -944,17 +982,54 @@ local function wallStep()
             * CONFIG.WALL_SIDE
 end
 
+connect(swapKeyBox.MouseButton1Click, function()
+    capturingKey = "swap"
+    swapKeyBox.Text = "PRESSIONE..."
+    lockKeyBox.Text = "TECLA: " .. keyLabel(lockKey)
+end)
+connect(lockKeyBox.MouseButton1Click, function()
+    capturingKey = "lock"
+    lockKeyBox.Text = "PRESSIONE..."
+    swapKeyBox.Text = "TECLA: " .. keyLabel(swapKey)
+end)
+
 -- ============================================
 -- CONTROLES DO TECLADO
 -- ============================================
 
 connect(UIS.InputBegan, function(input, processed)
+    if capturingKey then
+        local choice = input.KeyCode
+        if choice == Enum.KeyCode.Escape then
+            capturingKey = nil
+            swapKeyBox.Text = "TECLA: " .. keyLabel(swapKey)
+            lockKeyBox.Text = "TECLA: " .. keyLabel(lockKey)
+            return
+        end
+        if choice == Enum.KeyCode.Unknown or choice == Enum.KeyCode.Space
+            or choice == Enum.KeyCode.F6 or choice == Enum.KeyCode.F7
+            or choice == Enum.KeyCode.RightControl or choice == Enum.KeyCode.LeftControl then
+            warn("[KEYBIND] Tecla reservada ou invalida")
+            return
+        end
+        if (capturingKey == "swap" and choice == lockKey)
+            or (capturingKey == "lock" and choice == swapKey) then
+            warn("[KEYBIND] Essa tecla ja pertence a outra funcao")
+            return
+        end
+        if capturingKey == "swap" then swapKey = choice else lockKey = choice end
+        capturingKey = nil
+        swapKeyBox.Text = "TECLA: " .. keyLabel(swapKey)
+        lockKeyBox.Text = "TECLA: " .. keyLabel(lockKey)
+        return
+    end
     if processed then return end
-
-    if input.KeyCode == Enum.KeyCode.Space then
+    if input.KeyCode == lockKey then
+        toggleLock()
+    elseif input.KeyCode == Enum.KeyCode.Space then
         spaceHeld = true
 
-    elseif input.KeyCode == Enum.KeyCode.E then
+    elseif input.KeyCode == swapKey then
         if swapON then
             task.spawn(doSwap)
         end
@@ -1012,5 +1087,5 @@ connect(close.MouseButton1Click, cleanup)
 
 refresh()
 
-print("[JJS HUB V7] CARREGADO")
+print("[JJS HUB V8] CARREGADO")
 print("Janela redimensionavel e minimizavel")
