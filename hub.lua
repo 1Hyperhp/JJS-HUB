@@ -1,7 +1,7 @@
 
--- JJS HUB V1
+-- JJS HUB V3 | PC
 -- WALL CLIMB V3 + TODO PERFECT SWAP V11
--- PC
+-- Janela arrastavel, redimensionavel e minimizavel
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
@@ -11,8 +11,9 @@ local VIM = game:GetService("VirtualInputManager")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Remover versoes anteriores do HUB
-if _G.JJSHubCleanup then
+-- LIMPEZA DE VERSOES ANTERIORES
+
+if type(_G.JJSHubCleanup) == "function" then
     pcall(_G.JJSHubCleanup)
 end
 
@@ -32,168 +33,443 @@ for _, nome in ipairs({
     end
 end
 
-local antigo = playerGui:FindFirstChild("JJSHubV1")
-if antigo then
-    antigo:Destroy()
+for _, nome in ipairs({"JJSHubV1", "JJSHubV2", "JJSHubV3"}) do
+    local antigo = playerGui:FindFirstChild(nome)
+    if antigo then antigo:Destroy() end
 end
 
+local alive = true
 local connections = {}
-local ativo = true
+local wallON = false
+local swapON = false
+local spaceHeld = false
+local lastImpulse = 0
+local swapBusy = false
+local timingOffset = 0
 
-local wallEnabled = false
-local swapEnabled = false
+local function connect(signal, fn)
+    local connection = signal:Connect(fn)
+    table.insert(connections, connection)
+    return connection
+end
 
-local segurandoSpace = false
-local ultimoImpulso = 0
-local ocupado = false
-local ajuste = 0
+-- CONFIGURACOES
 
 local CONFIG = {
-    DISTANCIA_PAREDE = 3.5,
-    IMPULSO_VERTICAL = 30,
-    IMPULSO_LATERAL = 10,
-    INTERVALO_IMPULSO = 0.38,
-
+    WALL_DISTANCE = 3.5,
+    WALL_UP = 30,
+    WALL_SIDE = 10,
+    WALL_INTERVAL = 0.38,
     R_HOLD = 0.10,
     M1_HOLD = 0.035,
-    COOLDOWN = 2.5,
-    MAX_DIST = 60
+    SWAP_COOLDOWN = 2.5,
+    MAX_TARGET_DISTANCE = 60
 }
 
-local function conectar(signal, callback)
-    local conn = signal:Connect(callback)
-    table.insert(connections, conn)
-    return conn
+-- ============================================
+-- INTERFACE
+-- ============================================
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "JJSHubV3"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = false
+gui.DisplayOrder = 100
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.fromOffset(350, 315)
+main.Position = UDim2.new(0.5, -175, 0.5, -157)
+main.BackgroundColor3 = Color3.fromRGB(24, 27, 36)
+main.BorderSizePixel = 0
+main.Active = true
+main.ClipsDescendants = true
+main.Parent = gui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 11)
+mainCorner.Parent = main
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(90, 105, 140)
+stroke.Thickness = 1
+stroke.Parent = main
+
+-- CABECALHO
+
+local header = Instance.new("Frame")
+header.Name = "Header"
+header.Size = UDim2.new(1, 0, 0, 45)
+header.BackgroundColor3 = Color3.fromRGB(35, 40, 55)
+header.BorderSizePixel = 0
+header.Active = true
+header.Parent = main
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -90, 1, 0)
+title.Position = UDim2.fromOffset(12, 0)
+title.BackgroundTransparency = 1
+title.Text = "JJS HUB V3"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = header
+
+local minimize = Instance.new("TextButton")
+minimize.Size = UDim2.fromOffset(34, 29)
+minimize.Position = UDim2.new(1, -78, 0, 8)
+minimize.BackgroundColor3 = Color3.fromRGB(65, 75, 100)
+minimize.TextColor3 = Color3.new(1, 1, 1)
+minimize.Text = "_"
+minimize.TextSize = 19
+minimize.Font = Enum.Font.GothamBold
+minimize.Parent = header
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(34, 29)
+close.Position = UDim2.new(1, -40, 0, 8)
+close.BackgroundColor3 = Color3.fromRGB(145, 55, 65)
+close.TextColor3 = Color3.new(1, 1, 1)
+close.Text = "X"
+close.TextSize = 15
+close.Font = Enum.Font.GothamBold
+close.Parent = header
+
+for _, button in ipairs({minimize, close}) do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = button
 end
 
--- ==================================
--- TODO PERFECT SWAP V11
--- ==================================
+-- AREA DOS BOTOES
 
-local function calcularTiming(dist)
-    if not dist then
-        return 300
-    elseif dist <= 10 then
-        return 300
-    elseif dist <= 25 then
-        return 320
-    elseif dist <= 35 then
-        return 370
-    else
-        return 450
+local content = Instance.new("Frame")
+content.Name = "Content"
+content.Position = UDim2.fromOffset(12, 57)
+content.Size = UDim2.new(1, -24, 1, -72)
+content.BackgroundTransparency = 1
+content.Parent = main
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 9)
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.Parent = content
+
+local function makeButton(text)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, 0, 0, 45)
+    b.BackgroundColor3 = Color3.fromRGB(58, 65, 84)
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 14
+    b.Text = text
+    b.Parent = content
+
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 7)
+    c.Parent = b
+
+    return b
+end
+
+local wallButton = makeButton("WALL CLIMB V3 | OFF")
+local swapButton = makeButton("PERFECT SWAP V11 | OFF")
+local timingButton = makeButton("TIMING | 0 ms")
+
+local info = Instance.new("TextLabel")
+info.Size = UDim2.new(1, 0, 0, 65)
+info.BackgroundTransparency = 1
+info.TextColor3 = Color3.fromRGB(195, 205, 225)
+info.Font = Enum.Font.Gotham
+info.TextSize = 12
+info.TextWrapped = true
+info.Text = "WALL: ESPACO perto da parede\nSWAP: E | F6/F7: ajustar timing\nArraste o canto inferior direito para redimensionar"
+info.Parent = content
+
+-- ALCA PARA REDIMENSIONAR
+
+local resizeHandle = Instance.new("TextButton")
+resizeHandle.Name = "ResizeHandle"
+resizeHandle.Size = UDim2.fromOffset(28, 28)
+resizeHandle.Position = UDim2.new(1, -28, 1, -28)
+resizeHandle.BackgroundTransparency = 1
+resizeHandle.Text = "◢"
+resizeHandle.TextColor3 = Color3.fromRGB(170, 190, 230)
+resizeHandle.TextSize = 23
+resizeHandle.Font = Enum.Font.GothamBold
+resizeHandle.ZIndex = 5
+resizeHandle.Parent = main
+
+-- BOTAO FLUTUANTE PARA REABRIR
+
+local openButton = Instance.new("TextButton")
+openButton.Name = "OpenHub"
+openButton.Size = UDim2.fromOffset(116, 38)
+openButton.Position = UDim2.new(0, 20, 0.5, -19)
+openButton.BackgroundColor3 = Color3.fromRGB(40, 115, 90)
+openButton.TextColor3 = Color3.new(1, 1, 1)
+openButton.Font = Enum.Font.GothamBold
+openButton.TextSize = 13
+openButton.Text = "ABRIR HUB"
+openButton.Visible = false
+openButton.Active = true
+openButton.Parent = gui
+
+local openCorner = Instance.new("UICorner")
+openCorner.CornerRadius = UDim.new(0, 8)
+openCorner.Parent = openButton
+
+-- ============================================
+-- ARRASTAR JANELA E REDIMENSIONAR
+-- ============================================
+
+local dragging = false
+local resizing = false
+
+local dragStart
+local originalPosition
+local resizeStart
+local originalSize
+
+local MIN_WIDTH = 230
+local MIN_HEIGHT = 245
+local MAX_WIDTH = 850
+local MAX_HEIGHT = 650
+
+connect(header.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        -- Nao iniciar arrasto ao clicar nos controles
+        local x = input.Position.X
+        local right = header.AbsolutePosition.X + header.AbsoluteSize.X
+
+        if x >= right - 90 then return end
+
+        dragging = true
+        dragStart = input.Position
+        originalPosition = main.Position
     end
+end)
+
+connect(resizeHandle.MouseButton1Down, function()
+    resizing = true
+    resizeStart = UIS:GetMouseLocation()
+    originalSize = main.AbsoluteSize
+end)
+
+connect(UIS.InputChanged, function(input)
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement then
+        return
+    end
+
+    local mouse = UIS:GetMouseLocation()
+
+    if dragging and dragStart and originalPosition then
+        local delta = input.Position - dragStart
+
+        main.Position = UDim2.new(
+            originalPosition.X.Scale,
+            originalPosition.X.Offset + delta.X,
+            originalPosition.Y.Scale,
+            originalPosition.Y.Offset + delta.Y
+        )
+    end
+
+    if resizing and resizeStart and originalSize then
+        local delta = mouse - resizeStart
+
+        local newWidth = math.clamp(
+            originalSize.X + delta.X,
+            MIN_WIDTH,
+            MAX_WIDTH
+        )
+
+        local newHeight = math.clamp(
+            originalSize.Y + delta.Y,
+            MIN_HEIGHT,
+            MAX_HEIGHT
+        )
+
+        main.Size = UDim2.fromOffset(newWidth, newHeight)
+    end
+end)
+
+connect(UIS.InputEnded, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+        resizing = false
+    end
+end)
+
+-- ============================================
+-- MINIMIZAR, REABRIR E FECHAR
+-- ============================================
+
+connect(minimize.MouseButton1Click, function()
+    main.Visible = false
+    openButton.Visible = true
+end)
+
+connect(openButton.MouseButton1Click, function()
+    main.Visible = true
+    openButton.Visible = false
+end)
+
+-- ============================================
+-- ATUALIZACAO DOS BOTOES
+-- ============================================
+
+local function refresh()
+    wallButton.Text =
+        "WALL CLIMB V3 | " .. (wallON and "ON" or "OFF")
+
+    swapButton.Text =
+        "PERFECT SWAP V11 | " .. (swapON and "ON" or "OFF")
+
+    timingButton.Text =
+        "TIMING | " .. timingOffset .. " ms"
+
+    wallButton.BackgroundColor3 = wallON
+        and Color3.fromRGB(40, 130, 90)
+        or Color3.fromRGB(58, 65, 84)
+
+    swapButton.BackgroundColor3 = swapON
+        and Color3.fromRGB(40, 130, 90)
+        or Color3.fromRGB(58, 65, 84)
 end
 
-local function obterAlvo()
+connect(wallButton.MouseButton1Click, function()
+    wallON = not wallON
+    if not wallON then spaceHeld = false end
+    refresh()
+end)
+
+connect(swapButton.MouseButton1Click, function()
+    swapON = not swapON
+    refresh()
+end)
+
+connect(timingButton.MouseButton1Click, function()
+    timingOffset = timingOffset + 10
+    if timingOffset > 120 then
+        timingOffset = -120
+    end
+    refresh()
+end)
+
+-- ============================================
+-- TODO PERFECT SWAP V11
+-- ============================================
+
+local function calculateTiming(distance)
+    if not distance then return 300 end
+    if distance <= 10 then return 300 end
+    if distance <= 25 then return 320 end
+    if distance <= 35 then return 370 end
+    return 450
+end
+
+local function getTarget()
     local camera = workspace.CurrentCamera
     local char = player.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
 
-    if not camera or not root then
-        return nil
-    end
+    if not camera or not root then return nil end
 
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = {char}
 
-    local resultado = workspace:Raycast(
+    local hit = workspace:Raycast(
         camera.CFrame.Position,
         camera.CFrame.LookVector * 100,
         params
     )
 
-    if not resultado then
-        return nil
-    end
+    if not hit then return nil end
 
-    local model = resultado.Instance:FindFirstAncestorOfClass("Model")
-    if not model then
-        return nil
-    end
+    local model = hit.Instance:FindFirstAncestorOfClass("Model")
+    if not model then return nil end
 
     local hum = model:FindFirstChildOfClass("Humanoid")
-    local alvoRoot = model:FindFirstChild("HumanoidRootPart")
+    local targetRoot = model:FindFirstChild("HumanoidRootPart")
 
-    if not hum or hum.Health <= 0 or not alvoRoot then
+    if not hum or hum.Health <= 0 or not targetRoot then
         return nil
     end
 
-    local delta = alvoRoot.Position - root.Position
-    local dist = Vector3.new(delta.X, 0, delta.Z).Magnitude
+    local delta = targetRoot.Position - root.Position
+    local distance = Vector3.new(delta.X, 0, delta.Z).Magnitude
 
-    if dist > CONFIG.MAX_DIST then
+    if distance > CONFIG.MAX_TARGET_DISTANCE then
         return nil
     end
 
-    return model, dist
+    return model, distance
 end
 
-local function enviarR()
+local function sendR()
     VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
     task.wait(CONFIG.R_HOLD)
     VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
 end
 
-local function enviarM1()
+local function sendM1()
     VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
     task.wait(CONFIG.M1_HOLD)
     VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 end
 
-local function executarSwap()
-    if not ativo or not swapEnabled or ocupado then
-        return
-    end
+local function doSwap()
+    if not alive or not swapON or swapBusy then return end
 
-    ocupado = true
+    swapBusy = true
 
-    local ok, erro = pcall(function()
-        local alvo, dist = obterAlvo()
+    local ok, err = pcall(function()
+        local target, distance = getTarget()
 
-        local timing = math.clamp(
-            calcularTiming(dist) + ajuste,
+        local ms = math.clamp(
+            calculateTiming(distance) + timingOffset,
             180,
             650
         )
 
-        local inicio = os.clock()
+        local start = os.clock()
+        sendR()
 
-        enviarR()
+        local remaining = ms / 1000 - (os.clock() - start)
 
-        local restante = timing / 1000 - (os.clock() - inicio)
-
-        if restante > 0 then
-            task.wait(restante)
+        if remaining > 0 then
+            task.wait(remaining)
         end
 
-        if not ativo or not swapEnabled then
-            return
+        if alive and swapON then
+            sendM1()
         end
 
-        enviarM1()
-
-        print(string.format(
-            "[TODO V11] Alvo: %s | Timing: %dms",
-            alvo and alvo.Name or "Nao identificado",
-            timing
-        ))
+        print(
+            "[PERFECT SWAP V11]",
+            target and target.Name or "Sem alvo",
+            ms .. "ms"
+        )
     end)
 
     if not ok then
-        warn("[TODO V11]", erro)
+        warn("[PERFECT SWAP V11]", err)
     end
 
-    task.wait(CONFIG.COOLDOWN)
-    ocupado = false
+    task.wait(CONFIG.SWAP_COOLDOWN)
+    swapBusy = false
 end
 
--- ==================================
+-- ============================================
 -- WALL CLIMB V3
--- ==================================
+-- ============================================
 
-local function atualizarWallClimb()
-    if not ativo or not wallEnabled or not segurandoSpace then
+local function wallStep()
+    if not alive or not wallON or not spaceHeld then
         return
     end
 
@@ -213,7 +489,7 @@ local function atualizarWallClimb()
 
     local hit = workspace:Raycast(
         root.Position,
-        root.CFrame.LookVector * CONFIG.DISTANCIA_PAREDE,
+        root.CFrame.LookVector * CONFIG.WALL_DISTANCE,
         params
     )
 
@@ -221,13 +497,11 @@ local function atualizarWallClimb()
         return
     end
 
-    local agora = os.clock()
-
-    if agora - ultimoImpulso < CONFIG.INTERVALO_IMPULSO then
+    if os.clock() - lastImpulse < CONFIG.WALL_INTERVAL then
         return
     end
 
-    ultimoImpulso = agora
+    lastImpulse = os.clock()
 
     local lateral = 0
 
@@ -237,221 +511,82 @@ local function atualizarWallClimb()
         lateral = 1
     end
 
-    local velocidade = root.AssemblyLinearVelocity
-    local direita = root.CFrame.RightVector
+    local velocity = root.AssemblyLinearVelocity
 
     root.AssemblyLinearVelocity =
         Vector3.new(
-            velocidade.X,
-            CONFIG.IMPULSO_VERTICAL,
-            velocidade.Z
-        ) + direita * lateral * CONFIG.IMPULSO_LATERAL
+            velocity.X,
+            CONFIG.WALL_UP,
+            velocity.Z
+        ) + root.CFrame.RightVector
+            * lateral
+            * CONFIG.WALL_SIDE
 end
 
--- ==================================
--- INTERFACE DO HUB
--- ==================================
-
-local gui = Instance.new("ScreenGui")
-gui.Name = "JJSHubV1"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.Parent = playerGui
-
-local frame = Instance.new("Frame")
-frame.Name = "Main"
-frame.Size = UDim2.fromOffset(340, 355)
-frame.Position = UDim2.new(0.5, -170, 0.5, -177)
-frame.BackgroundColor3 = Color3.fromRGB(24, 26, 34)
-frame.BorderSizePixel = 0
-frame.Active = true
-frame.Draggable = true
-frame.Parent = gui
-
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 12)
-corner.Parent = frame
-
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(80, 90, 120)
-stroke.Thickness = 1
-stroke.Parent = frame
-
-local titulo = Instance.new("TextLabel")
-titulo.Size = UDim2.new(1, -55, 0, 48)
-titulo.Position = UDim2.fromOffset(15, 0)
-titulo.BackgroundTransparency = 1
-titulo.Text = "JJS HUB | V1"
-titulo.TextColor3 = Color3.fromRGB(255, 255, 255)
-titulo.TextSize = 21
-titulo.Font = Enum.Font.GothamBold
-titulo.TextXAlignment = Enum.TextXAlignment.Left
-titulo.Parent = frame
-
-local minimizar = Instance.new("TextButton")
-minimizar.Size = UDim2.fromOffset(35, 32)
-minimizar.Position = UDim2.new(1, -44, 0, 8)
-minimizar.Text = "-"
-minimizar.TextSize = 24
-minimizar.Font = Enum.Font.GothamBold
-minimizar.TextColor3 = Color3.new(1, 1, 1)
-minimizar.BackgroundColor3 = Color3.fromRGB(55, 60, 75)
-minimizar.Parent = frame
-
-local miniCorner = Instance.new("UICorner")
-miniCorner.CornerRadius = UDim.new(0, 7)
-miniCorner.Parent = minimizar
-
-local conteudo = Instance.new("Frame")
-conteudo.Size = UDim2.new(1, -24, 1, -60)
-conteudo.Position = UDim2.fromOffset(12, 54)
-conteudo.BackgroundTransparency = 1
-conteudo.Parent = frame
-
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 10)
-layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-layout.Parent = conteudo
-
-local function criarBotao(nome)
-    local botao = Instance.new("TextButton")
-    botao.Size = UDim2.new(1, 0, 0, 49)
-    botao.BackgroundColor3 = Color3.fromRGB(55, 60, 76)
-    botao.TextColor3 = Color3.fromRGB(255, 255, 255)
-    botao.TextSize = 15
-    botao.Font = Enum.Font.GothamBold
-    botao.Text = nome
-    botao.Parent = conteudo
-
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, 8)
-    c.Parent = botao
-
-    return botao
-end
-
-local wallButton = criarBotao("WALL CLIMB V3 | OFF")
-local swapButton = criarBotao("PERFECT SWAP V11 | OFF")
-local timingButton = criarBotao("AJUSTE TIMING | 0ms")
-
-local info = Instance.new("TextLabel")
-info.Size = UDim2.new(1, 0, 0, 72)
-info.BackgroundTransparency = 1
-info.TextColor3 = Color3.fromRGB(185, 190, 205)
-info.TextSize = 13
-info.Font = Enum.Font.Gotham
-info.TextWrapped = true
-info.Text = "WALL: segure ESPACO perto da parede\nSWAP: aperte E\nF6 = -10ms | F7 = +10ms"
-info.Parent = conteudo
-
-local function atualizarBotoes()
-    wallButton.Text = "WALL CLIMB V3 | " .. (wallEnabled and "ON" or "OFF")
-    swapButton.Text = "PERFECT SWAP V11 | " .. (swapEnabled and "ON" or "OFF")
-    timingButton.Text = "AJUSTE TIMING | " .. ajuste .. "ms"
-
-    wallButton.BackgroundColor3 = wallEnabled
-        and Color3.fromRGB(40, 125, 85)
-        or Color3.fromRGB(55, 60, 76)
-
-    swapButton.BackgroundColor3 = swapEnabled
-        and Color3.fromRGB(40, 125, 85)
-        or Color3.fromRGB(55, 60, 76)
-end
-
-conectar(wallButton.MouseButton1Click, function()
-    wallEnabled = not wallEnabled
-    atualizarBotoes()
-end)
-
-conectar(swapButton.MouseButton1Click, function()
-    swapEnabled = not swapEnabled
-    atualizarBotoes()
-end)
-
-conectar(timingButton.MouseButton1Click, function()
-    ajuste = ajuste + 10
-
-    if ajuste > 120 then
-        ajuste = -120
-    end
-
-    atualizarBotoes()
-end)
-
-local minimizado = false
-
-conectar(minimizar.MouseButton1Click, function()
-    minimizado = not minimizado
-    conteudo.Visible = not minimizado
-
-    frame.Size = minimizado
-        and UDim2.fromOffset(340, 48)
-        or UDim2.fromOffset(340, 355)
-
-    minimizar.Text = minimizado and "+" or "-"
-end)
-
--- ==================================
+-- ============================================
 -- CONTROLES DO TECLADO
--- ==================================
+-- ============================================
 
-conectar(UIS.InputBegan, function(input, processed)
+connect(UIS.InputBegan, function(input, processed)
     if processed then return end
 
     if input.KeyCode == Enum.KeyCode.Space then
-        segurandoSpace = true
+        spaceHeld = true
 
     elseif input.KeyCode == Enum.KeyCode.E then
-        if swapEnabled then
-            task.spawn(executarSwap)
+        if swapON then
+            task.spawn(doSwap)
         end
 
     elseif input.KeyCode == Enum.KeyCode.F6 then
-        ajuste = math.max(ajuste - 10, -120)
-        atualizarBotoes()
+        timingOffset = math.max(timingOffset - 10, -120)
+        refresh()
 
     elseif input.KeyCode == Enum.KeyCode.F7 then
-        ajuste = math.min(ajuste + 10, 120)
-        atualizarBotoes()
+        timingOffset = math.min(timingOffset + 10, 120)
+        refresh()
     end
 end)
 
-conectar(UIS.InputEnded, function(input)
+connect(UIS.InputEnded, function(input)
     if input.KeyCode == Enum.KeyCode.Space then
-        segurandoSpace = false
+        spaceHeld = false
     end
 end)
 
-conectar(player.CharacterAdded, function()
-    segurandoSpace = false
-    ultimoImpulso = 0
+connect(player.CharacterAdded, function()
+    spaceHeld = false
+    lastImpulse = 0
 end)
 
-conectar(RunService.Heartbeat, atualizarWallClimb)
+connect(RunService.Heartbeat, wallStep)
 
--- ==================================
--- LIMPEZA
--- ==================================
+-- ============================================
+-- LIMPEZA DO HUB
+-- ============================================
 
-_G.JJSHubCleanup = function()
-    ativo = false
-    wallEnabled = false
-    swapEnabled = false
+local function cleanup()
+    if not alive then return end
 
-    for _, conn in ipairs(connections) do
+    alive = false
+    wallON = false
+    swapON = false
+
+    for _, connection in ipairs(connections) do
         pcall(function()
-            conn:Disconnect()
+            connection:Disconnect()
         end)
     end
 
     table.clear(connections)
-
-    if gui then
-        gui:Destroy()
-    end
+    gui:Destroy()
 end
 
-atualizarBotoes()
+_G.JJSHubCleanup = cleanup
 
-print("[JJS HUB V1] CARREGADO")
-print("Wall Climb V3 + Todo Perfect Swap V11")
+connect(close.MouseButton1Click, cleanup)
+
+refresh()
+
+print("[JJS HUB V3] CARREGADO")
+print("Janela redimensionavel e minimizavel")
