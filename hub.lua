@@ -1,6 +1,3 @@
-```
-
-
 -- JJS HUB V7 | PC
 -- WALL CLIMB V3 + TODO PERFECT SWAP V11
 -- Janela arrastavel, redimensionavel e minimizavel
@@ -35,7 +32,7 @@ for _, nome in ipairs({
     end
 end
 
-for _, nome in ipairs({"JJSHubV1", "JJSHubV2", "JJSHubV3", "JJSHubV4", "JJSHubV5", "JJSHubV4"}) do
+for _, nome in ipairs({"JJSHubV1", "JJSHubV2", "JJSHubV3", "JJSHubV4", "JJSHubV5", "JJSHubV6", "JJSHubV7"}) do
     local antigo = playerGui:FindFirstChild(nome)
     if antigo then antigo:Destroy() end
 end
@@ -74,7 +71,7 @@ local CONFIG = {
 -- ============================================
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "JJSHubV4"
+gui.Name = "JJSHubV7"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = false
 gui.DisplayOrder = 100
@@ -114,7 +111,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -90, 1, 0)
 title.Position = UDim2.fromOffset(12, 0)
 title.BackgroundTransparency = 1
-title.Text = "JJS HUB V4"
+title.Text = "JJS HUB V7"
 title.TextColor3 = Color3.new(1, 1, 1)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 18
@@ -1017,4 +1014,3 @@ refresh()
 
 print("[JJS HUB V7] CARREGADO")
 print("Janela redimensionavel e minimizavel")
-```
